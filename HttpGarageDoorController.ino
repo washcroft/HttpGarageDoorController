@@ -1,0 +1,632 @@
+// INCLUDES
+#include <Tasker.h>
+#include <WiFi101.h>
+#include <WiFiClient.h>
+#include <WiFiServer.h>
+#include <WiFiMDNSResponder.h>
+
+#include <ArduinoJson.h>
+
+#include "config.h"
+#include "secret.h"
+
+// #define DEBUG 1
+
+// TYPE DEFINITIONS
+enum DoorState {
+  DOORSTATE_OPEN = 0,
+  DOORSTATE_CLOSED = 1,
+  DOORSTATE_OPENING = 2,
+  DOORSTATE_CLOSING = 3,
+  DOORSTATE_STOPPED_OPENING = 4,
+  DOORSTATE_STOPPED_CLOSING = 5,
+  DOORSTATE_UNKNOWN = -1
+};
+
+static inline char * stringFromDoorState(enum DoorState doorState)
+{
+  switch (doorState)
+  {
+    case DOORSTATE_OPEN: return (char*)"open";
+    case DOORSTATE_CLOSED: return (char*)"closed";
+    case DOORSTATE_OPENING: return (char*)"opening";
+    case DOORSTATE_CLOSING: return (char*)"closing";
+    case DOORSTATE_STOPPED_OPENING: return (char*)"stopped-opening";
+    case DOORSTATE_STOPPED_CLOSING: return (char*)"stopped-closing";
+    case DOORSTATE_UNKNOWN: return (char*)"unknown";
+    default: return (char*)"unknown";
+  }
+}
+
+// GLOBAL VARIABLES
+long connectedPort;
+IPAddress connectedIp;
+
+bool sensorOpen;
+bool sensorClosed;
+bool lightInput;
+bool lightOutput;
+bool lightState;
+bool lightRequested;
+unsigned long doorTimeLastOperated = 0;
+enum DoorState doorState = DOORSTATE_UNKNOWN;
+enum DoorState doorStateLastKnown = DOORSTATE_UNKNOWN;
+
+// GLOBAL OBJECTS
+Tasker tasker;
+WiFiMDNSResponder mdnsResponder;
+WiFiServer server(HTTP_SERVER_PORT);
+
+// WiFi101 Overridden Callbacks - https://github.com/arduino-libraries/WiFi101/issues/40
+static void myResolveCallback(uint8_t * /* hostName */, uint32_t hostIp)
+{
+  WiFi._resolve = hostIp;
+}
+
+void mySocketBufferCallback(SOCKET sock, uint8 u8Msg, void *pvMsg)
+{
+  socketBufferCb(sock, u8Msg, pvMsg); // call the original callback
+
+  if (u8Msg == SOCKET_MSG_ACCEPT) {
+    tstrSocketAcceptMsg *pstrAccept = (tstrSocketAcceptMsg *)pvMsg;
+    connectedIp = pstrAccept->strAddr.sin_addr.s_addr;
+    connectedPort = pstrAccept->strAddr.sin_port;
+  }
+}
+
+// UTILITY FUNCTIONS
+char * strExtract(const char *str, const char *p1, const char *p2)
+{
+  char *start, *end;
+  char *result = NULL;
+
+  if (start = strstr(str, p1))
+  {
+    start += strlen(p1);
+    if (end = strstr(start, p2))
+    {
+      result = (char *)malloc(end - start + 1);
+      memcpy(result, start, end - start);
+      result[end - start] = '\0';
+    }
+  }
+
+  return result;
+}
+
+int strCaseEndsWith(const char *str, const char *suffix)
+{
+  if (!str || !suffix) {
+    return 0;
+  }
+
+  size_t lenstr = strlen(str);
+  size_t lensuffix = strlen(suffix);
+
+  if (lensuffix >  lenstr) {
+    return 0;
+  }
+
+  return (strncasecmp(str + lenstr - lensuffix, suffix, lensuffix) == 0);
+}
+
+char * getMacAddress(byte macAddress[]) {
+  int i;
+  static char result[18];
+  char *ptr = result;
+
+  for (i = 5; i >= 0; i--)
+  {
+    if (ptr != result)
+    {
+      ptr += sprintf(ptr, ":");
+    }
+
+    ptr += sprintf(ptr, "%02X", macAddress[i]);
+  }
+
+  return result;
+}
+
+char * getEncryptionType(int encryptionType) {
+  static char result[15];
+
+  switch (encryptionType) {
+    case ENC_TYPE_WEP:
+      strcpy(result, "WEP");
+      break;
+    case ENC_TYPE_TKIP:
+      strcpy(result, "WPA-PSK");
+      break;
+    case ENC_TYPE_CCMP:
+      strcpy(result, "WPA-802.1x");
+      break;
+    case ENC_TYPE_NONE:
+      strcpy(result, "None");
+      break;
+    case ENC_TYPE_AUTO:
+      strcpy(result, "Auto");
+      break;
+    default:
+      strcpy(result, "n/a");
+      break;
+  }
+
+  return result;
+}
+
+
+// SETUP
+void setup() {
+  delay(2000);
+
+  // Open serial port for debug
+  Serial.begin(115200);
+  Serial.println("Started Serial Debug");
+
+  // Configure pins
+  pinMode(LED_OUTPUT_PIN, OUTPUT);
+  pinMode(DOOR_OUTPUT_OPEN_PIN, OUTPUT);
+  pinMode(DOOR_OUTPUT_CLOSE_PIN, OUTPUT);
+  pinMode(LIGHT_OUTPUT_PIN, OUTPUT);
+  pinMode(LIGHT_INPUT_PIN, INPUT);
+  pinMode(SENSOR_OPEN_INPUT_PIN, INPUT_PULLUP);
+  pinMode(SENSOR_CLOSED_INPUT_PIN, INPUT_PULLUP);
+
+  // Start monitoring inputs with tasker
+  monitorInputs(0);
+  tasker.setInterval(monitorInputs, 1000);
+}
+
+// FUNCTIONS
+void monitorInputs(int) {
+  // Check door sensor inputs
+  sensorOpen = !(bool)digitalRead(SENSOR_OPEN_INPUT_PIN);
+  sensorClosed = !(bool)digitalRead(SENSOR_CLOSED_INPUT_PIN);
+
+  if (sensorOpen && !sensorClosed) {
+    doorState = DOORSTATE_OPEN;
+  } else if (!sensorOpen && sensorClosed) {
+    doorState = DOORSTATE_CLOSED;
+  } else if (sensorOpen && sensorClosed) {
+    doorState = DOORSTATE_UNKNOWN;
+  } else if (!sensorOpen && !sensorClosed) {
+    if ((doorState != DOORSTATE_OPENING) && (doorState != DOORSTATE_CLOSING) && (doorState != DOORSTATE_STOPPED_OPENING) && (doorState != DOORSTATE_STOPPED_CLOSING)) {
+      if (doorStateLastKnown == DOORSTATE_CLOSED) {
+        doorState = DOORSTATE_OPENING;
+      } else if (doorStateLastKnown == DOORSTATE_OPEN) {
+        doorState = DOORSTATE_CLOSING;
+      } else {
+        doorState = DOORSTATE_UNKNOWN;
+      }
+    }
+  }
+
+  if ((doorState == DOORSTATE_OPEN) || (doorState == DOORSTATE_CLOSED)) {
+    doorTimeLastOperated = 0;
+    doorStateLastKnown = doorState;
+  } else if ((doorState == DOORSTATE_OPENING) || (doorState == DOORSTATE_CLOSING)) {
+    unsigned long timeNow = millis();
+
+    if (doorTimeLastOperated == 0) {
+      doorTimeLastOperated = timeNow;
+    } else if ((timeNow - doorTimeLastOperated) >= DOOR_MAX_OPEN_CLOSE_TIME) {
+      doorTimeLastOperated = 0;
+
+      if (doorState == DOORSTATE_OPENING) {
+        doorState = DOORSTATE_STOPPED_OPENING;
+      } else if (doorState == DOORSTATE_CLOSING) {
+        doorState = DOORSTATE_STOPPED_CLOSING;
+      }
+    }
+  }
+
+  // Check light inputs, output if necessary
+  lightInput = (bool)digitalRead(LIGHT_INPUT_PIN);
+  lightOutput = (bool)digitalRead(LIGHT_OUTPUT_PIN);
+  lightState = (lightInput || lightRequested);
+
+  if (lightOutput != lightState) {
+    setLightState(lightState);
+  }
+
+#ifdef DEBUG
+  char jsonStatus[256];
+  getJsonStatus(jsonStatus, sizeof(jsonStatus));
+  Serial.println(jsonStatus);
+#endif
+}
+
+void operateDoor(int output, int cycles) {
+  for (int i = 0; i < cycles; i++) {
+    if (i != 0) {
+      delay(DOOR_OUTPUT_PULSE_TIME);
+    }
+
+    digitalWrite(output, HIGH);
+    delay(DOOR_OUTPUT_PULSE_TIME);
+    digitalWrite(output, LOW);
+  }
+}
+
+void setDoorState(boolean state) {
+  Serial.print("\nOUTPUT: Changing garage door state to: ");
+  Serial.println(state);
+
+  int pin = 0;
+  int cycles = 0;
+  int DOOR_OUTPUT_PIN = DOOR_OUTPUT_OPEN_PIN;
+
+  if (state) {
+    if (DOOR_OUTPUT_OPEN_PIN != DOOR_OUTPUT_CLOSE_PIN) {
+      pin = DOOR_OUTPUT_OPEN_PIN;
+      cycles = 1;
+
+    } else if ((doorState == DOORSTATE_CLOSED) || (doorState == DOORSTATE_STOPPED_CLOSING) || (doorState == DOORSTATE_UNKNOWN)) {
+      pin = DOOR_OUTPUT_PIN;
+      cycles = 1;
+
+    } else if (doorState == DOORSTATE_CLOSING) {
+      pin = DOOR_OUTPUT_PIN;
+      cycles = 2;
+
+    } else if (doorState == DOORSTATE_STOPPED_OPENING) {
+      pin = DOOR_OUTPUT_PIN;
+      cycles = 3;
+
+    }
+
+    doorState = DOORSTATE_OPENING;
+
+  } else {
+    if (DOOR_OUTPUT_OPEN_PIN != DOOR_OUTPUT_CLOSE_PIN) {
+      pin = DOOR_OUTPUT_CLOSE_PIN;
+      cycles = 1;
+
+    } else if ((doorState == DOORSTATE_OPEN) || (doorState == DOORSTATE_STOPPED_OPENING) || (doorState == DOORSTATE_UNKNOWN)) {
+      pin = DOOR_OUTPUT_PIN;
+      cycles = 1;
+
+    } else if (doorState == DOORSTATE_OPENING) {
+      pin = DOOR_OUTPUT_PIN;
+      cycles = 2;
+
+    } else if (doorState == DOORSTATE_STOPPED_CLOSING) {
+      pin = DOOR_OUTPUT_PIN;
+      cycles = 3;
+
+    }
+
+    doorState = DOORSTATE_CLOSING;
+  }
+
+  doorTimeLastOperated = 0;
+  operateDoor(pin, cycles);
+}
+
+void setLightState(boolean state) {
+  Serial.print("\nOUTPUT: Changing garage light state to: ");
+  Serial.println(state);
+  digitalWrite(LIGHT_OUTPUT_PIN, state);
+}
+
+void getJsonStatus(char * const jsonStatus, int jsonStatusSize) {
+  StaticJsonBuffer<200> jsonBuffer;
+  JsonObject& jsonRoot = jsonBuffer.createObject();
+
+  jsonRoot["result"] = 200;
+  jsonRoot["success"] = true;
+  jsonRoot["message"] = "OK";
+  jsonRoot["light-input"] = lightInput;
+  jsonRoot["light-requested"] = lightRequested;
+  jsonRoot["light-state"] = lightState;
+  jsonRoot["sensor-open"] = sensorOpen;
+  jsonRoot["sensor-closed"] = sensorClosed;
+  jsonRoot["door-state"] = stringFromDoorState(doorState);
+
+  jsonRoot.printTo(jsonStatus, jsonStatusSize);
+}
+
+boolean connectWifi() {
+  if (WiFi.status() == WL_CONNECTED) {
+    return true;
+  }
+
+  Serial.println("\nWiFi Connection Lost - Connecting");
+
+  // Activate connected status LED
+  digitalWrite(LED_OUTPUT_PIN, LOW);
+
+  // Check for the presence of the WiFi hardware
+  Serial.print("Finding WiFi101 hardware");
+
+  if (WiFi.status() == WL_NO_SHIELD) {
+    Serial.println("...not found, aborting!");
+    return false;
+  }
+  else
+  {
+    Serial.print("...found v");
+    Serial.println(WiFi.firmwareVersion());
+  }
+
+  // Connect to WiFi network
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print("Connecting to WiFi network");
+
+    WiFi.end();
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+    long timeout = WIFI_CONNECTION_TIMEOUT;
+    while ((WiFi.status() != WL_CONNECTED) && (timeout > 0)) {
+      Serial.print(".");
+      delay(250);
+      timeout = timeout - 250;
+    }
+
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("...failed!");
+    }
+  }
+
+  Serial.print("...connected to ");
+  Serial.println(WIFI_SSID);
+
+  // Obtain IP address
+  Serial.print("Obtaining IP address");
+
+  while (WiFi.localIP() == INADDR_NONE) {
+    Serial.print(".");
+    delay(300);
+  }
+
+  IPAddress clientip = WiFi.localIP();
+  Serial.print("...obtained ");
+  Serial.println(clientip);
+
+  // Register callbacks
+  registerSocketCallback(mySocketBufferCallback, myResolveCallback);
+
+  // Start mDNS responder
+  Serial.print("Starting mDNS responder");
+
+  if (!mdnsResponder.begin(MDNS_NAME)) {
+    Serial.println("...failed!");
+  }
+
+  Serial.println("...started!");
+
+  // Start HTTP server
+  Serial.print("Starting HTTP server");
+  server.begin();
+  Serial.println("...started!");
+
+  // Activate connected status LED
+  digitalWrite(LED_OUTPUT_PIN, HIGH);
+
+  // Print connection info
+  Serial.println("\nWiFi Connection Complete");
+
+  Serial.print("SSID: ");
+  Serial.println(WIFI_SSID);
+
+  Serial.print("Encryption Type: ");
+  Serial.println(getEncryptionType(WiFi.encryptionType()));
+
+  long rssi = WiFi.RSSI();
+  Serial.print("Signal Strength (RSSI): ");
+  Serial.print(rssi);
+  Serial.println(" dBm");
+
+  byte macAddress[6];
+  WiFi.macAddress(macAddress);
+  Serial.print("Client MAC: ");
+  Serial.println(getMacAddress(macAddress));
+
+  byte bssid[6];
+  WiFi.BSSID(bssid);
+  Serial.print("Station MAC: ");
+  Serial.println(getMacAddress(bssid));
+
+  Serial.print("Client IP Address: ");
+  Serial.println(clientip);
+
+  IPAddress gatewayip = WiFi.gatewayIP();
+  Serial.print("Gateway IP Address: ");
+  Serial.println(gatewayip);
+
+  Serial.print("mDNS Hostname: ");
+  Serial.print(MDNS_NAME);
+  Serial.println(".local");
+
+  return true;
+}
+
+// MAIN LOOP
+void loop() {
+  // Handle tasks
+  tasker.loop();
+
+  // Check/reattempt connection to WiFi
+  if (!connectWifi()) {
+    delay(5000);
+    return;
+  }
+
+  // Handle incoming mDNS requests
+  mdnsResponder.poll();
+
+  // Handle incoming HTTP/aREST requests
+  WiFiClient client = server.available();
+  if (!client) {
+    return;
+  }
+
+  while (!client.available()) {
+    delay(1);
+  }
+
+  processClient(client);
+}
+
+void processClient(WiFiClient client)
+{
+  long requestIndex = 0;
+  char request[REQUEST_BUFFER_SIZE] = {0};
+  boolean currentLineIsBlank = true;
+
+#ifdef DEBUG
+  Serial.print("\nProcessing new client connection from ");
+  Serial.print(connectedIp);
+  Serial.print(":");
+  Serial.println(connectedPort);
+#endif
+
+  while (client.connected())
+  {
+    if (client.available())
+    {
+      char c = client.read();
+      if (requestIndex < (REQUEST_BUFFER_SIZE - 1)) {
+        request[requestIndex] = c;
+        requestIndex++;
+      }
+
+      // Is request complete?
+      if (c == '\n' && currentLineIsBlank) {
+#ifdef DEBUG
+        Serial.print(request);
+#endif
+
+        // Extract and split HTTP request line
+        char *requestLineEnd = strstr(request, "\r\n");
+        char requestLine[requestLineEnd - request];
+        memcpy(requestLine, request, sizeof(requestLine));
+
+        char *requestType = strtok(requestLine, " ");
+        char *requestUrl = strtok(NULL, " ");
+
+        if ((requestType == NULL) || (requestUrl == NULL)) {
+          client.println("HTTP/1.1 400 Bad Request");
+          client.println("Content-Type: text/plain");
+          client.println();
+          client.println("400 Bad Request");
+          break;
+        }
+
+        // Extract and check API Key header
+        char apiKeyHeader[] = "X-API-Key: ";
+        char apiKeyReceived[sizeof(API_KEY) + 10];
+        char *apiKeyReceivedPtr = strExtract(request, apiKeyHeader, "\r\n");
+
+        if (apiKeyReceivedPtr) {
+          if (strlen(API_KEY) == strlen(apiKeyReceivedPtr)) {
+            memcpy(apiKeyReceived, apiKeyReceivedPtr, strlen(apiKeyReceivedPtr) + 1);
+          }
+
+          free(apiKeyReceivedPtr);
+        }
+
+        if (strcmp(API_KEY, apiKeyReceived) != 0) {
+          client.println("HTTP/1.1 401 Unauthorized");
+          client.println("Content-Type: application/json");
+          client.println();
+          client.println("{ \"result\": 401, \"success\": false, \"message\": \"The requested resource was unauthorised.\" }");
+          break;
+        }
+
+        // Handle request
+        if (strcmp(requestType, "GET") == 0) {
+          if (strcasecmp(requestUrl, "/controller") == 0) {
+            client.println("HTTP/1.1 200 OK");
+            client.println("Content-Type: application/json");
+            client.println();
+
+            char jsonStatus[256];
+            getJsonStatus(jsonStatus, sizeof(jsonStatus));
+
+#ifdef DEBUG
+            Serial.print(jsonStatus);
+#endif
+
+            client.print(jsonStatus);
+            break;
+
+          } else {
+            client.println("HTTP/1.1 404 Not Found");
+            client.println("Content-Type: application/json");
+            client.println();
+            client.println("{ \"result\": 404, \"success\": false, \"message\": \"The requested resource was not found.\" }");
+            break;
+          }
+        } else if (strcmp(requestType, "PUT") == 0) {
+          if ((strcasecmp(requestUrl, "/controller/light/on") == 0) || (strcasecmp(requestUrl, "/controller/light/off") == 0)) {
+            bool lightOn = false;
+
+            if (strCaseEndsWith(requestUrl, "/on")) {
+              lightOn = true;
+            } else if (strCaseEndsWith(requestUrl, "off")) {
+              lightOn = false;
+            }
+
+            // Set the global lightRequested variable and allow the light output to be set in the monitoring function
+            lightRequested = lightOn;
+            monitorInputs(0);
+
+            client.println("HTTP/1.1 202 Accepted");
+            client.println("Content-Type: application/json");
+            client.println();
+            client.println("{ \"result\": 202, \"success\": true, \"message\": \"Accepted\" }");
+            break;
+
+          } else if ((strcasecmp(requestUrl, "/controller/door/open") == 0) || (strcasecmp(requestUrl, "/controller/door/close") == 0)) {
+            bool doorOpen = false;
+
+            if (strCaseEndsWith(requestUrl, "/open")) {
+              doorOpen = true;
+            } else if (strCaseEndsWith(requestUrl, "/close")) {
+              doorOpen = false;
+            }
+
+            // Operate the door
+            setDoorState(doorOpen);
+
+            client.println("HTTP/1.1 202 OK");
+            client.println("Content-Type: application/json");
+            client.println();
+            client.println("{ \"result\": 202, \"success\": true, \"message\": \"Accepted\" }");
+            break;
+
+          } else {
+            client.println("HTTP/1.1 404 Not Found");
+            client.println("Content-Type: application/json");
+            client.println();
+            client.println("{ \"result\": 404, \"success\": false, \"message\": \"The requested resource was not found.\" }");
+            break;
+          }
+        } else {
+          client.println("HTTP/1.1 405 Method Not Allowed");
+          client.println("Content-Type: application/json");
+          client.println();
+          client.println("{ \"result\": 405, \"success\": false, \"message\": \"The requested method was not allowed.\" }");
+          break;
+        }
+
+        break;
+      }
+
+      if (c == '\n') {
+        currentLineIsBlank = true;
+      } else if (c != '\r') {
+        currentLineIsBlank = false;
+      }
+    }
+  }
+
+  delay(1);
+  client.stop();
+
+#ifdef DEBUG
+  Serial.println("\n\nClosed client connection");
+#endif
+}
