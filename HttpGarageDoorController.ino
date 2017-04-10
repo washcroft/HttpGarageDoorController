@@ -1,14 +1,16 @@
 // INCLUDES
-#include <Tasker.h>
 #include <WiFi101.h>
 #include <WiFiClient.h>
 #include <WiFiServer.h>
 #include <WiFiMDNSResponder.h>
 
-#include <ArduinoJson.h>
-
 #include "config.h"
 #include "secret.h"
+
+// LIBRARIES
+#include <Tasker.h>
+#include <Bounce2.h>
+#include <ArduinoJson.h>
 
 // #define DEBUG 1
 
@@ -56,6 +58,9 @@ enum DoorState doorStateLastKnown = DOORSTATE_UNKNOWN;
 Tasker tasker;
 WiFiMDNSResponder mdnsResponder;
 WiFiServer server(HTTP_SERVER_PORT);
+Bounce sensorOpenDebouncer = Bounce();
+Bounce sensorClosedDebouncer = Bounce();
+Bounce lightInputDebouncer = Bounce();
 
 // WiFi101 Overridden Callbacks - https://github.com/arduino-libraries/WiFi101/issues/40
 static void myResolveCallback(uint8_t * /* hostName */, uint32_t hostIp)
@@ -164,14 +169,24 @@ void setup() {
   Serial.begin(115200);
   Serial.println("Started Serial Debug");
 
-  // Configure pins
+  // Configure input pins and debouncing
+  pinMode(SENSOR_OPEN_INPUT_PIN, INPUT_PULLUP);
+  sensorOpenDebouncer.attach(SENSOR_OPEN_INPUT_PIN);
+  sensorOpenDebouncer.interval(50);
+
+  pinMode(SENSOR_CLOSED_INPUT_PIN, INPUT_PULLUP);
+  sensorClosedDebouncer.attach(SENSOR_CLOSED_INPUT_PIN);
+  sensorClosedDebouncer.interval(50);
+
+  pinMode(LIGHT_INPUT_PIN, INPUT_PULLUP);
+  lightInputDebouncer.attach(LIGHT_INPUT_PIN);
+  lightInputDebouncer.interval(50);
+
+  // Configure output pins
   pinMode(LED_OUTPUT_PIN, OUTPUT);
   pinMode(DOOR_OUTPUT_OPEN_PIN, OUTPUT);
   pinMode(DOOR_OUTPUT_CLOSE_PIN, OUTPUT);
   pinMode(LIGHT_OUTPUT_PIN, OUTPUT);
-  pinMode(LIGHT_INPUT_PIN, INPUT);
-  pinMode(SENSOR_OPEN_INPUT_PIN, INPUT_PULLUP);
-  pinMode(SENSOR_CLOSED_INPUT_PIN, INPUT_PULLUP);
 
   // Start monitoring inputs with tasker
   monitorInputs(0);
@@ -181,8 +196,8 @@ void setup() {
 // FUNCTIONS
 void monitorInputs(int) {
   // Check door sensor inputs
-  sensorOpen = !(bool)digitalRead(SENSOR_OPEN_INPUT_PIN);
-  sensorClosed = !(bool)digitalRead(SENSOR_CLOSED_INPUT_PIN);
+  sensorOpen = !(bool)sensorOpenDebouncer.read();
+  sensorClosed = !(bool)sensorClosedDebouncer.read();
 
   if (sensorOpen && !sensorClosed) {
     doorState = DOORSTATE_OPEN;
@@ -222,13 +237,10 @@ void monitorInputs(int) {
   }
 
   // Check light inputs, output if necessary
-  lightInput = (bool)digitalRead(LIGHT_INPUT_PIN);
-  lightOutput = (bool)digitalRead(LIGHT_OUTPUT_PIN);
+  lightInput = !(bool)lightInputDebouncer.read();
   lightState = (lightInput || lightRequested);
 
-  if (lightOutput != lightState) {
-    setLightState(lightState);
-  }
+  setLightState(lightState);
 
 #ifdef DEBUG
   char jsonStatus[256];
@@ -305,9 +317,13 @@ void setDoorState(boolean state) {
 }
 
 void setLightState(boolean state) {
-  Serial.print("\nOUTPUT: Changing garage light state to: ");
-  Serial.println(state);
-  digitalWrite(LIGHT_OUTPUT_PIN, state);
+  lightOutput = (bool)digitalRead(LIGHT_OUTPUT_PIN);
+
+  if (lightOutput != state) {
+    Serial.print("\nOUTPUT: Changing garage light state to: ");
+    Serial.println(state);
+    digitalWrite(LIGHT_OUTPUT_PIN, state);
+  }
 }
 
 void getJsonStatus(char * const jsonStatus, int jsonStatusSize) {
@@ -444,6 +460,14 @@ boolean connectWifi() {
 
 // MAIN LOOP
 void loop() {
+  // Handle debouncing
+  sensorOpenDebouncer.update();
+  sensorClosedDebouncer.update();
+  lightInputDebouncer.update();
+
+  // Handle incoming mDNS requests
+  mdnsResponder.poll();
+
   // Handle tasks
   tasker.loop();
 
@@ -452,9 +476,6 @@ void loop() {
     delay(5000);
     return;
   }
-
-  // Handle incoming mDNS requests
-  mdnsResponder.poll();
 
   // Handle incoming HTTP/aREST requests
   WiFiClient client = server.available();

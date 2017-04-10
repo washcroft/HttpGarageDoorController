@@ -68,7 +68,14 @@ Variables:
 * WIFI_PASSWORD - The WiFi network password to authenticate the connection
 * API_KEY - The API key which must exist in the X-API-Key HTTP header to authenticate the request
 
-# REST API
+# Dependencies
+
+- [WiFi101](https://github.com/arduino-libraries/WiFi101)
+- [ArduinoJson](https://github.com/bblanchon/ArduinoJson)
+- [Bounce2](https://github.com/thomasfredericks/Bounce2)
+- [Tasker](https://github.com/joysfera/arduino-tasker)
+
+# REST API Documentation
 
 All API requests must include the HTTP header **X-API-Key** with the value of the *API_KEY* variable defined in your *secret.h* file.
 
@@ -138,7 +145,7 @@ Controls the configured door GPIO output pin with a brief pulse (pulse time conf
 
    **Required:**
 
-   `action=[operate]`
+   `action=[open|close]`
 
 * **Success Response:**
 
