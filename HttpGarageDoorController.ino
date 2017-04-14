@@ -229,6 +229,7 @@ void monitorInputs(int) {
   if ((doorState == DOORSTATE_OPEN) || (doorState == DOORSTATE_CLOSED)) {
     doorTimeLastOperated = 0;
     doorStateLastKnown = doorState;
+    
   } else if ((doorState == DOORSTATE_OPENING) || (doorState == DOORSTATE_CLOSING)) {
     if ((timeNow - doorTimeLastOperated) >= DOOR_MAX_OPEN_CLOSE_TIME) {
       // Door was opening/closing, but has now exceeded max open/close time
@@ -258,7 +259,7 @@ void monitorInputs(int) {
 void operateDoor(int output, int cycles) {
   for (int i = 0; i < cycles; i++) {
     if (i != 0) {
-      delay(DOOR_OUTPUT_PULSE_TIME);
+      delay(DOOR_OUTPUT_PULSE_DELAY_TIME);
     }
 
     digitalWrite(output, HIGH);
@@ -499,7 +500,7 @@ void loop() {
 void processClient(WiFiClient client)
 {
   long requestIndex = 0;
-  char request[REQUEST_BUFFER_SIZE] = {0};
+  char request[HTTP_REQUEST_BUFFER_SIZE] = {0};
   boolean currentLineIsBlank = true;
 
 #ifdef DEBUG
@@ -514,7 +515,7 @@ void processClient(WiFiClient client)
     if (client.available())
     {
       char c = client.read();
-      if (requestIndex < (REQUEST_BUFFER_SIZE - 1)) {
+      if (requestIndex < (HTTP_REQUEST_BUFFER_SIZE - 1)) {
         request[requestIndex] = c;
         requestIndex++;
       }

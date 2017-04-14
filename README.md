@@ -1,6 +1,8 @@
 # HttpGarageDoorController
 A project for an Arduino based WiFi-enabled controller, IoT/M2M enabling an ordinary garage door operator.
 
+![Demo](https://github.com/washcroft/HttpGarageDoorController/raw/master/reference/demo.gif "Demo")
+
 # About
 This Arduino project allows you to directly control your garage door and/or light with HTTP requests. The Arduino exposes a very basic REST JSON API via its listening HTTP web server.
 
@@ -19,22 +21,24 @@ The controller is configured in the **config.h** file:
 ```
 // GPIO Pins
 const int LED_OUTPUT_PIN = 6;
-const int DOOR_OUTPUT_OPEN_PIN = 1;
-const int DOOR_OUTPUT_CLOSE_PIN = 1;
+const int DOOR_OUTPUT_OPEN_PIN = 3;
+const int DOOR_OUTPUT_CLOSE_PIN = 3;
 const int LIGHT_OUTPUT_PIN = 2;
-const int LIGHT_INPUT_PIN = 3;
-const int SENSOR_OPEN_INPUT_PIN = 4;
-const int SENSOR_CLOSED_INPUT_PIN = 5;
+const int LIGHT_INPUT_PIN = 1;
+const int SENSOR_OPEN_INPUT_PIN = 5;
+const int SENSOR_CLOSED_INPUT_PIN = 4;
 
 // Network Config
 const long HTTP_SERVER_PORT = 80;
+const long HTTP_REQUEST_BUFFER_SIZE = 256;
+const int WIFI_CONNECTION_TIMEOUT = 10000;
 const char MDNS_NAME[] = "garagedoorcontroller";
 
-// Misc Config
-const int REQUEST_BUFFER_SIZE = 256;
-const int DOOR_OUTPUT_PULSE_TIME = 350;
-const int DOOR_MAX_OPEN_CLOSE_TIME = 15000;
-const int WIFI_CONNECTION_TIMEOUT = 10000;
+// Garage Door Config
+const int DOOR_OUTPUT_PULSE_TIME = 400;
+const int DOOR_OUTPUT_PULSE_DELAY_TIME = 1250;
+const int DOOR_SENSOR_REACT_TIME = 3000;
+const int DOOR_MAX_OPEN_CLOSE_TIME = 25000;
 ```
 
 Variables:
@@ -48,11 +52,14 @@ Variables:
 * SENSOR_CLOSED_INPUT_PIN - The GPIO input pin connected to the reed switch at the garage door closed position
 
 * HTTP_SERVER_PORT - The TCP port the HTTP web server should listen on (default 80)
-* MDNS_NAME - The mDNS hostname the controller should publish (WiFi101 support experimental, exclude .local)
-* REQUEST_BUFFER_SIZE - The buffer size to allocate for each incoming HTTP request (default 256)
-* DOOR_OUTPUT_PULSE_TIME - The amount of time in milliseconds the GPIO output is kept HIGH when operated (simulated button press)
-* DOOR_MAX_OPEN_CLOSE_TIME - The maximum amount of time in milliseconds the garage door should take to open or close (used to detect a fault status, add a few seconds of margin)
+* HTTP_REQUEST_BUFFER_SIZE - The buffer size to allocate for each incoming HTTP request (default 256)
 * WIFI_CONNECTION_TIMEOUT - The amount of time in milliseconds a WiFi connection can wait to setup before retrying
+* MDNS_NAME - The mDNS hostname the controller should publish (WiFi101 support experimental, exclude .local)
+
+* DOOR_OUTPUT_PULSE_TIME - The amount of time in milliseconds the GPIO output is kept HIGH when operated (simulated button press)
+* DOOR_OUTPUT_PULSE_DELAY_TIME - The amount of time in milliseconds to wait before the garage door operator will respond to a second triggering of the GPIO output
+* DOOR_SENSOR_REACT_TIME - The amount of time in milliseconds the open/closed sensors take to react to the garage door opening/closing
+* DOOR_MAX_OPEN_CLOSE_TIME - The maximum amount of time in milliseconds the garage door should take to open or close (used to detect a fault status, add a few seconds of margin)
 
 You will also need to add a **secret.h** file to your project containing your WiFi SSID, Password and HTTP API Key:
 
@@ -74,6 +81,10 @@ Variables:
 - [ArduinoJson](https://github.com/bblanchon/ArduinoJson)
 - [Bounce2](https://github.com/thomasfredericks/Bounce2)
 - [Tasker](https://github.com/joysfera/arduino-tasker)
+
+# Example Circuit Diagram
+
+![Example Circuit Diagram](https://github.com/washcroft/HttpGarageDoorController/raw/master/reference/circuit_diagram.png "Example Circuit Diagram")
 
 # REST API Documentation
 
