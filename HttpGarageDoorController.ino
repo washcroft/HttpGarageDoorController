@@ -199,20 +199,29 @@ void monitorInputs(int) {
   sensorOpen = !(bool)sensorOpenDebouncer.read();
   sensorClosed = !(bool)sensorClosedDebouncer.read();
 
-  if (sensorOpen && !sensorClosed) {
-    doorState = DOORSTATE_OPEN;
-  } else if (!sensorOpen && sensorClosed) {
-    doorState = DOORSTATE_CLOSED;
-  } else if (sensorOpen && sensorClosed) {
-    doorState = DOORSTATE_UNKNOWN;
-  } else if (!sensorOpen && !sensorClosed) {
-    if ((doorState != DOORSTATE_OPENING) && (doorState != DOORSTATE_CLOSING) && (doorState != DOORSTATE_STOPPED_OPENING) && (doorState != DOORSTATE_STOPPED_CLOSING)) {
-      if (doorStateLastKnown == DOORSTATE_CLOSED) {
-        doorState = DOORSTATE_OPENING;
-      } else if (doorStateLastKnown == DOORSTATE_OPEN) {
-        doorState = DOORSTATE_CLOSING;
-      } else {
-        doorState = DOORSTATE_UNKNOWN;
+  unsigned long timeNow = millis();
+
+  if ((doorTimeLastOperated == 0) || ((timeNow - doorTimeLastOperated) >= DOOR_SENSOR_REACT_TIME)) {
+    if (sensorOpen && !sensorClosed) {
+      doorState = DOORSTATE_OPEN;
+    } else if (!sensorOpen && sensorClosed) {
+      doorState = DOORSTATE_CLOSED;
+    } else if (sensorOpen && sensorClosed) {
+      doorState = DOORSTATE_UNKNOWN;
+    } else if (!sensorOpen && !sensorClosed) {
+      if ((doorState != DOORSTATE_OPENING) && (doorState != DOORSTATE_CLOSING) && (doorState != DOORSTATE_STOPPED_OPENING) && (doorState != DOORSTATE_STOPPED_CLOSING)) {
+        if (doorStateLastKnown == DOORSTATE_CLOSED) {
+          doorState = DOORSTATE_OPENING;
+        } else if (doorStateLastKnown == DOORSTATE_OPEN) {
+          doorState = DOORSTATE_CLOSING;
+        } else {
+          doorState = DOORSTATE_UNKNOWN;
+        }
+
+        if ((doorState == DOORSTATE_OPENING) || (doorState == DOORSTATE_CLOSING)) {
+          // Door must have been manually operated
+          doorTimeLastOperated = timeNow;
+        }
       }
     }
   }
@@ -221,11 +230,8 @@ void monitorInputs(int) {
     doorTimeLastOperated = 0;
     doorStateLastKnown = doorState;
   } else if ((doorState == DOORSTATE_OPENING) || (doorState == DOORSTATE_CLOSING)) {
-    unsigned long timeNow = millis();
-
-    if (doorTimeLastOperated == 0) {
-      doorTimeLastOperated = timeNow;
-    } else if ((timeNow - doorTimeLastOperated) >= DOOR_MAX_OPEN_CLOSE_TIME) {
+    if ((timeNow - doorTimeLastOperated) >= DOOR_MAX_OPEN_CLOSE_TIME) {
+      // Door was opening/closing, but has now exceeded max open/close time
       doorTimeLastOperated = 0;
 
       if (doorState == DOORSTATE_OPENING) {
@@ -312,8 +318,8 @@ void setDoorState(boolean state) {
     doorState = DOORSTATE_CLOSING;
   }
 
-  doorTimeLastOperated = 0;
   operateDoor(pin, cycles);
+  doorTimeLastOperated = millis();
 }
 
 void setLightState(boolean state) {
