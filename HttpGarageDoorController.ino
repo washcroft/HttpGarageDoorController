@@ -490,18 +490,16 @@ void loop() {
     return;
   }
 
-  while (!client.available()) {
-    delay(1);
-  }
-
   processClient(client);
 }
 
 void processClient(WiFiClient client)
 {
   long requestIndex = 0;
+  long requestComplete = false;
+  boolean currentLineIsEmpty = true;
+  unsigned long connectedSince = millis();
   char request[HTTP_REQUEST_BUFFER_SIZE] = {0};
-  boolean currentLineIsBlank = true;
 
 #ifdef DEBUG
   Serial.print("\nProcessing new client connection from ");
@@ -512,142 +510,150 @@ void processClient(WiFiClient client)
 
   while (client.connected())
   {
-    if (client.available())
-    {
-      char c = client.read();
-      if (requestIndex < (HTTP_REQUEST_BUFFER_SIZE - 1)) {
-        request[requestIndex] = c;
-        requestIndex++;
+    // Has request timed out?
+    unsigned long timeNow = millis();
+    if (((timeNow - connectedSince) >= HTTP_REQUEST_TIMEOUT)) {
+      break;
+    }
+
+    // Is data available?
+    if (!client.available()) {
+      continue;
+    }
+
+    char c = client.read();
+    if (requestIndex < (HTTP_REQUEST_BUFFER_SIZE - 1)) {
+      request[requestIndex] = c;
+      requestIndex++;
+    }
+
+    // Is request complete?
+    requestComplete = (currentLineIsEmpty && c == '\n');
+    
+    if (c == '\n') {
+      currentLineIsEmpty = true;
+    } else if (c != '\r') {
+      currentLineIsEmpty = false;
+    }
+
+    if (!requestComplete) {
+      continue;
+    }
+
+#ifdef DEBUG
+    Serial.print(request);
+#endif
+
+    // Extract and split HTTP request line
+    char *requestLineEnd = strstr(request, "\r\n");
+    char requestLine[requestLineEnd - request];
+    memcpy(requestLine, request, sizeof(requestLine));
+
+    char *requestType = strtok(requestLine, " ");
+    char *requestUrl = strtok(NULL, " ");
+
+    if ((requestType == NULL) || (requestUrl == NULL)) {
+      client.println("HTTP/1.1 400 Bad Request");
+      client.println("Content-Type: application/json");
+      client.println();
+      client.println("{ \"result\": 400, \"success\": false, \"message\": \"The requested was bad.\" }");
+      break;
+    }
+
+    // Extract and check API Key header
+    char apiKeyHeader[] = "X-API-Key: ";
+    char apiKeyReceived[sizeof(API_KEY) + 10];
+    char *apiKeyReceivedPtr = strExtract(request, apiKeyHeader, "\r\n");
+
+    if (apiKeyReceivedPtr) {
+      if (strlen(API_KEY) == strlen(apiKeyReceivedPtr)) {
+        memcpy(apiKeyReceived, apiKeyReceivedPtr, strlen(apiKeyReceivedPtr) + 1);
       }
 
-      // Is request complete?
-      if (c == '\n' && currentLineIsBlank) {
-#ifdef DEBUG
-        Serial.print(request);
-#endif
+      free(apiKeyReceivedPtr);
+    }
 
-        // Extract and split HTTP request line
-        char *requestLineEnd = strstr(request, "\r\n");
-        char requestLine[requestLineEnd - request];
-        memcpy(requestLine, request, sizeof(requestLine));
+    if (strcmp(API_KEY, apiKeyReceived) != 0) {
+      client.println("HTTP/1.1 401 Unauthorized");
+      client.println("Content-Type: application/json");
+      client.println();
+      client.println("{ \"result\": 401, \"success\": false, \"message\": \"The requested resource was unauthorised.\" }");
+      break;
+    }
 
-        char *requestType = strtok(requestLine, " ");
-        char *requestUrl = strtok(NULL, " ");
+    // Handle request
+    if (strcmp(requestType, "GET") == 0) {
+      if (strcasecmp(requestUrl, "/controller") == 0) {
+        client.println("HTTP/1.1 200 OK");
+        client.println("Content-Type: application/json");
+        client.println();
 
-        if ((requestType == NULL) || (requestUrl == NULL)) {
-          client.println("HTTP/1.1 400 Bad Request");
-          client.println("Content-Type: text/plain");
-          client.println();
-          client.println("400 Bad Request");
-          break;
-        }
-
-        // Extract and check API Key header
-        char apiKeyHeader[] = "X-API-Key: ";
-        char apiKeyReceived[sizeof(API_KEY) + 10];
-        char *apiKeyReceivedPtr = strExtract(request, apiKeyHeader, "\r\n");
-
-        if (apiKeyReceivedPtr) {
-          if (strlen(API_KEY) == strlen(apiKeyReceivedPtr)) {
-            memcpy(apiKeyReceived, apiKeyReceivedPtr, strlen(apiKeyReceivedPtr) + 1);
-          }
-
-          free(apiKeyReceivedPtr);
-        }
-
-        if (strcmp(API_KEY, apiKeyReceived) != 0) {
-          client.println("HTTP/1.1 401 Unauthorized");
-          client.println("Content-Type: application/json");
-          client.println();
-          client.println("{ \"result\": 401, \"success\": false, \"message\": \"The requested resource was unauthorised.\" }");
-          break;
-        }
-
-        // Handle request
-        if (strcmp(requestType, "GET") == 0) {
-          if (strcasecmp(requestUrl, "/controller") == 0) {
-            client.println("HTTP/1.1 200 OK");
-            client.println("Content-Type: application/json");
-            client.println();
-
-            char jsonStatus[256];
-            getJsonStatus(jsonStatus, sizeof(jsonStatus));
+        char jsonStatus[256];
+        getJsonStatus(jsonStatus, sizeof(jsonStatus));
 
 #ifdef DEBUG
-            Serial.print(jsonStatus);
+        Serial.print(jsonStatus);
 #endif
 
-            client.print(jsonStatus);
-            break;
+        client.print(jsonStatus);
+        break;
 
-          } else {
-            client.println("HTTP/1.1 404 Not Found");
-            client.println("Content-Type: application/json");
-            client.println();
-            client.println("{ \"result\": 404, \"success\": false, \"message\": \"The requested resource was not found.\" }");
-            break;
-          }
-        } else if (strcmp(requestType, "PUT") == 0) {
-          if ((strcasecmp(requestUrl, "/controller/light/on") == 0) || (strcasecmp(requestUrl, "/controller/light/off") == 0)) {
-            bool lightOn = false;
-
-            if (strCaseEndsWith(requestUrl, "/on")) {
-              lightOn = true;
-            } else if (strCaseEndsWith(requestUrl, "off")) {
-              lightOn = false;
-            }
-
-            // Set the global lightRequested variable and allow the light output to be set in the monitoring function
-            lightRequested = lightOn;
-            monitorInputs(0);
-
-            client.println("HTTP/1.1 202 Accepted");
-            client.println("Content-Type: application/json");
-            client.println();
-            client.println("{ \"result\": 202, \"success\": true, \"message\": \"Accepted\" }");
-            break;
-
-          } else if ((strcasecmp(requestUrl, "/controller/door/open") == 0) || (strcasecmp(requestUrl, "/controller/door/close") == 0)) {
-            bool doorOpen = false;
-
-            if (strCaseEndsWith(requestUrl, "/open")) {
-              doorOpen = true;
-            } else if (strCaseEndsWith(requestUrl, "/close")) {
-              doorOpen = false;
-            }
-
-            // Operate the door
-            setDoorState(doorOpen);
-
-            client.println("HTTP/1.1 202 OK");
-            client.println("Content-Type: application/json");
-            client.println();
-            client.println("{ \"result\": 202, \"success\": true, \"message\": \"Accepted\" }");
-            break;
-
-          } else {
-            client.println("HTTP/1.1 404 Not Found");
-            client.println("Content-Type: application/json");
-            client.println();
-            client.println("{ \"result\": 404, \"success\": false, \"message\": \"The requested resource was not found.\" }");
-            break;
-          }
-        } else {
-          client.println("HTTP/1.1 405 Method Not Allowed");
-          client.println("Content-Type: application/json");
-          client.println();
-          client.println("{ \"result\": 405, \"success\": false, \"message\": \"The requested method was not allowed.\" }");
-          break;
-        }
-
+      } else {
+        client.println("HTTP/1.1 404 Not Found");
+        client.println("Content-Type: application/json");
+        client.println();
+        client.println("{ \"result\": 404, \"success\": false, \"message\": \"The requested resource was not found.\" }");
         break;
       }
+    } else if (strcmp(requestType, "PUT") == 0) {
+      if ((strcasecmp(requestUrl, "/controller/light/on") == 0) || (strcasecmp(requestUrl, "/controller/light/off") == 0)) {
+        if (strCaseEndsWith(requestUrl, "/on")) {
+          lightRequested = true;
+        } else if (strCaseEndsWith(requestUrl, "off")) {
+          lightRequested = false;
+        }
 
-      if (c == '\n') {
-        currentLineIsBlank = true;
-      } else if (c != '\r') {
-        currentLineIsBlank = false;
+        // Switch the light
+        lightState = (lightInput || lightRequested);
+        switchLight(lightState);
+
+        client.println("HTTP/1.1 202 Accepted");
+        client.println("Content-Type: application/json");
+        client.println();
+        client.println("{ \"result\": 202, \"success\": true, \"message\": \"Accepted\" }");
+        break;
+
+      } else if ((strcasecmp(requestUrl, "/controller/door/open") == 0) || (strcasecmp(requestUrl, "/controller/door/close") == 0)) {
+        bool doorOpen = false;
+
+        if (strCaseEndsWith(requestUrl, "/open")) {
+          doorOpen = true;
+        } else if (strCaseEndsWith(requestUrl, "/close")) {
+          doorOpen = false;
+        }
+
+        // Operate the door
+        operateDoor(doorOpen);
+
+        client.println("HTTP/1.1 202 OK");
+        client.println("Content-Type: application/json");
+        client.println();
+        client.println("{ \"result\": 202, \"success\": true, \"message\": \"Accepted\" }");
+        break;
+
+      } else {
+        client.println("HTTP/1.1 404 Not Found");
+        client.println("Content-Type: application/json");
+        client.println();
+        client.println("{ \"result\": 404, \"success\": false, \"message\": \"The requested resource was not found.\" }");
+        break;
       }
+    } else {
+      client.println("HTTP/1.1 405 Method Not Allowed");
+      client.println("Content-Type: application/json");
+      client.println();
+      client.println("{ \"result\": 405, \"success\": false, \"message\": \"The requested method was not allowed.\" }");
+      break;
     }
   }
 

@@ -9,6 +9,7 @@ const int SENSOR_CLOSED_INPUT_PIN = 4;
 
 // Network Config
 const long HTTP_SERVER_PORT = 80;
+const long HTTP_REQUEST_TIMEOUT = 4000;
 const long HTTP_REQUEST_BUFFER_SIZE = 256;
 const int WIFI_CONNECTION_TIMEOUT = 10000;
 const char MDNS_NAME[] = "garagedoorcontroller";

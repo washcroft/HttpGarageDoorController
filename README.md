@@ -30,6 +30,7 @@ const int SENSOR_CLOSED_INPUT_PIN = 4;
 
 // Network Config
 const long HTTP_SERVER_PORT = 80;
+const long HTTP_REQUEST_TIMEOUT = 4000;
 const long HTTP_REQUEST_BUFFER_SIZE = 256;
 const int WIFI_CONNECTION_TIMEOUT = 10000;
 const char MDNS_NAME[] = "garagedoorcontroller";
@@ -52,6 +53,7 @@ Variables:
 * SENSOR_CLOSED_INPUT_PIN - The GPIO input pin connected to the reed switch at the garage door closed position
 
 * HTTP_SERVER_PORT - The TCP port the HTTP web server should listen on (default 80)
+* HTTP_REQUEST_TIMEOUT - The amount of time in milliseconds a request is allowed to take before closing it (default 4000)
 * HTTP_REQUEST_BUFFER_SIZE - The buffer size to allocate for each incoming HTTP request (default 256)
 * WIFI_CONNECTION_TIMEOUT - The amount of time in milliseconds a WiFi connection can wait to setup before retrying
 * MDNS_NAME - The mDNS hostname the controller should publish (WiFi101 support experimental, exclude .local)
