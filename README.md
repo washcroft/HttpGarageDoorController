@@ -46,7 +46,7 @@ Variables:
 
 * LED_OUTPUT_PIN - The GPIO output pin connected to the 'network connected' status LED (optional)
 * DOOR_OUTPUT_OPEN_PIN - The GPIO output pin connected to the garage door open relay trigger
-* DOOR_OUTPUT_CLOSE_PIN - The GPIO output pin connected to the garage door close relay trigger (set the same as DOOR_OUTPUT_OPEN_PIN if the controller doesn't use separate open/close triggers)
+* DOOR_OUTPUT_CLOSE_PIN - The GPIO output pin connected to the garage door close relay trigger (set the same as DOOR_OUTPUT_OPEN_PIN if the operator doesn't use separate open/close triggers)
 * LIGHT_OUTPUT_PIN - The GPIO output pin connected to the garage light relay trigger
 * LIGHT_INPUT_PIN - The GPIO input pin connected to the external garage light trigger (optional)
 * SENSOR_OPEN_INPUT_PIN - The GPIO input pin connected to the reed switch at the garage door open position

@@ -229,7 +229,7 @@ void monitorInputs(int) {
   if ((doorState == DOORSTATE_OPEN) || (doorState == DOORSTATE_CLOSED)) {
     doorTimeLastOperated = 0;
     doorStateLastKnown = doorState;
-    
+
   } else if ((doorState == DOORSTATE_OPENING) || (doorState == DOORSTATE_CLOSING)) {
     if ((timeNow - doorTimeLastOperated) >= DOOR_MAX_OPEN_CLOSE_TIME) {
       // Door was opening/closing, but has now exceeded max open/close time
@@ -246,8 +246,7 @@ void monitorInputs(int) {
   // Check light inputs, output if necessary
   lightInput = !(bool)lightInputDebouncer.read();
   lightState = (lightInput || lightRequested);
-
-  setLightState(lightState);
+  switchLight(lightState);
 
 #ifdef DEBUG
   char jsonStatus[256];
@@ -268,10 +267,7 @@ void operateDoor(int output, int cycles) {
   }
 }
 
-void setDoorState(boolean state) {
-  Serial.print("\nOUTPUT: Changing garage door state to: ");
-  Serial.println(state);
-
+void operateDoor(boolean state) {
   int pin = 0;
   int cycles = 0;
   int DOOR_OUTPUT_PIN = DOOR_OUTPUT_OPEN_PIN;
@@ -319,11 +315,16 @@ void setDoorState(boolean state) {
     doorState = DOORSTATE_CLOSING;
   }
 
-  operateDoor(pin, cycles);
-  doorTimeLastOperated = millis();
+  if ((pin > 0) && (cycles > 0)) {
+    Serial.print("\nOUTPUT: Changing garage door state to: ");
+    Serial.println(stringFromDoorState(doorState));
+
+    operateDoor(pin, cycles);
+    doorTimeLastOperated = millis();
+  }
 }
 
-void setLightState(boolean state) {
+void switchLight(boolean state) {
   lightOutput = (bool)digitalRead(LIGHT_OUTPUT_PIN);
 
   if (lightOutput != state) {
