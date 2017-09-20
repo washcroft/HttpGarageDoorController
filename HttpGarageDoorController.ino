@@ -12,7 +12,8 @@
 #include <Bounce2.h>
 #include <ArduinoJson.h>
 
-// #define DEBUG 1
+//#define DEBUG 1
+//#define VERBOSE 1
 
 // TYPE DEFINITIONS
 enum DoorState {
@@ -24,21 +25,6 @@ enum DoorState {
   DOORSTATE_STOPPED_CLOSING = 5,
   DOORSTATE_UNKNOWN = -1
 };
-
-static inline char * stringFromDoorState(enum DoorState doorState)
-{
-  switch (doorState)
-  {
-    case DOORSTATE_OPEN: return (char*)"open";
-    case DOORSTATE_CLOSED: return (char*)"closed";
-    case DOORSTATE_OPENING: return (char*)"opening";
-    case DOORSTATE_CLOSING: return (char*)"closing";
-    case DOORSTATE_STOPPED_OPENING: return (char*)"stopped-opening";
-    case DOORSTATE_STOPPED_CLOSING: return (char*)"stopped-closing";
-    case DOORSTATE_UNKNOWN: return (char*)"unknown";
-    default: return (char*)"unknown";
-  }
-}
 
 // GLOBAL VARIABLES
 long connectedPort;
@@ -63,15 +49,16 @@ Bounce sensorClosedDebouncer = Bounce();
 Bounce lightInputDebouncer = Bounce();
 
 // WiFi101 Overridden Callbacks - https://github.com/arduino-libraries/WiFi101/issues/40
-static void myResolveCallback(uint8_t * /* hostName */, uint32_t hostIp)
-{
+static void myResolveCallback(uint8_t * /* hostName */, uint32_t hostIp) {
+  verbosePrint("Entered myResolveCallback()");
   WiFi._resolve = hostIp;
 }
 
-void mySocketBufferCallback(SOCKET sock, uint8 u8Msg, void *pvMsg)
-{
+void mySocketBufferCallback(SOCKET sock, uint8 u8Msg, void *pvMsg) {
+  verbosePrint("Entered mySocketBufferCallback()");
   socketBufferCb(sock, u8Msg, pvMsg); // call the original callback
 
+  verbosePrint("Checking socket message");
   if (u8Msg == SOCKET_MSG_ACCEPT) {
     tstrSocketAcceptMsg *pstrAccept = (tstrSocketAcceptMsg *)pvMsg;
     connectedIp = pstrAccept->strAddr.sin_addr.s_addr;
@@ -80,8 +67,31 @@ void mySocketBufferCallback(SOCKET sock, uint8 u8Msg, void *pvMsg)
 }
 
 // UTILITY FUNCTIONS
-char * strExtract(const char *str, const char *p1, const char *p2)
-{
+static inline void verbosePrint(const char *line) {
+#ifdef VERBOSE
+  Serial.println(line);
+#endif
+}
+
+static inline char * stringFromDoorState(enum DoorState doorState) {
+  verbosePrint("Entered stringFromDoorState()");
+
+  switch (doorState)
+  {
+    case DOORSTATE_OPEN: return (char*)"open";
+    case DOORSTATE_CLOSED: return (char*)"closed";
+    case DOORSTATE_OPENING: return (char*)"opening";
+    case DOORSTATE_CLOSING: return (char*)"closing";
+    case DOORSTATE_STOPPED_OPENING: return (char*)"stopped-opening";
+    case DOORSTATE_STOPPED_CLOSING: return (char*)"stopped-closing";
+    case DOORSTATE_UNKNOWN: return (char*)"unknown";
+    default: return (char*)"unknown";
+  }
+}
+
+char * strExtract(const char *str, const char *p1, const char *p2) {
+  verbosePrint("Entered strExtract()");
+
   char *start, *end;
   char *result = NULL;
 
@@ -99,8 +109,7 @@ char * strExtract(const char *str, const char *p1, const char *p2)
   return result;
 }
 
-int strCaseEndsWith(const char *str, const char *suffix)
-{
+int strCaseEndsWith(const char *str, const char *suffix) {
   if (!str || !suffix) {
     return 0;
   }
@@ -116,6 +125,8 @@ int strCaseEndsWith(const char *str, const char *suffix)
 }
 
 char * getMacAddress(byte macAddress[]) {
+  verbosePrint("Entered getMacAddress()");
+
   int i;
   static char result[18];
   char *ptr = result;
@@ -134,6 +145,7 @@ char * getMacAddress(byte macAddress[]) {
 }
 
 char * getEncryptionType(int encryptionType) {
+  verbosePrint("Entered getEncryptionType()");
   static char result[15];
 
   switch (encryptionType) {
@@ -163,6 +175,7 @@ char * getEncryptionType(int encryptionType) {
 
 // SETUP
 void setup() {
+  verbosePrint("Entered setup()");
   delay(2000);
 
   // Open serial port for debug
@@ -194,8 +207,11 @@ void setup() {
 }
 
 // FUNCTIONS
-void monitorInputs(int) {
+void monitorInputs(int) {    
+  verbosePrint("Entered monitorInputs()");
+
   // Check door sensor inputs
+  verbosePrint("Reading door sensor debouncers");
   sensorOpen = !(bool)sensorOpenDebouncer.read();
   sensorClosed = !(bool)sensorClosedDebouncer.read();
 
@@ -244,6 +260,7 @@ void monitorInputs(int) {
   }
 
   // Check light inputs, output if necessary
+  verbosePrint("Reading light sensor debouncer");
   lightInput = !(bool)lightInputDebouncer.read();
   lightState = (lightInput || lightRequested);
   switchLight(lightState);
@@ -256,6 +273,8 @@ void monitorInputs(int) {
 }
 
 void operateDoor(int output, int cycles) {
+  verbosePrint("Entered operateDoor()");
+
   for (int i = 0; i < cycles; i++) {
     if (i != 0) {
       delay(DOOR_OUTPUT_PULSE_DELAY_TIME);
@@ -268,6 +287,8 @@ void operateDoor(int output, int cycles) {
 }
 
 void operateDoor(boolean state) {
+  verbosePrint("Entered operateDoor()");
+
   int pin = 0;
   int cycles = 0;
   int DOOR_OUTPUT_PIN = DOOR_OUTPUT_OPEN_PIN;
@@ -325,6 +346,7 @@ void operateDoor(boolean state) {
 }
 
 void switchLight(boolean state) {
+  verbosePrint("Entered switchLight()");
   lightOutput = (bool)digitalRead(LIGHT_OUTPUT_PIN);
 
   if (lightOutput != state) {
@@ -335,6 +357,7 @@ void switchLight(boolean state) {
 }
 
 void getJsonStatus(char * const jsonStatus, int jsonStatusSize) {
+  verbosePrint("Entered getJsonStatus()");
   StaticJsonBuffer<200> jsonBuffer;
   JsonObject& jsonRoot = jsonBuffer.createObject();
 
@@ -351,8 +374,14 @@ void getJsonStatus(char * const jsonStatus, int jsonStatusSize) {
   jsonRoot.printTo(jsonStatus, jsonStatusSize);
 }
 
+boolean isWifiConnected() {
+  return (WiFi.status() == WL_CONNECTED);
+}
+
 boolean connectWifi() {
-  if (WiFi.status() == WL_CONNECTED) {
+  verbosePrint("Entered connectWifi()");
+
+  if (isWifiConnected()) {
     return true;
   }
 
@@ -468,7 +497,10 @@ boolean connectWifi() {
 
 // MAIN LOOP
 void loop() {
+  verbosePrint("Entered loop()");
+
   // Handle debouncing
+  verbosePrint("Calling debouncers.update()");
   sensorOpenDebouncer.update();
   sensorClosedDebouncer.update();
   lightInputDebouncer.update();
@@ -477,6 +509,7 @@ void loop() {
   mdnsResponder.poll();
 
   // Handle tasks
+  verbosePrint("Calling tasker.loop()");
   tasker.loop();
 
   // Check/reattempt connection to WiFi
@@ -486,6 +519,7 @@ void loop() {
   }
 
   // Handle incoming HTTP/aREST requests
+  verbosePrint("Calling server.available()");
   WiFiClient client = server.available();
   if (!client) {
     return;
@@ -494,8 +528,9 @@ void loop() {
   processClient(client);
 }
 
-void processClient(WiFiClient client)
-{
+void processClient(WiFiClient client) {
+  verbosePrint("Entered processClient()");
+
   long requestIndex = 0;
   long requestComplete = false;
   boolean currentLineIsEmpty = true;
@@ -509,8 +544,11 @@ void processClient(WiFiClient client)
   Serial.println(connectedPort);
 #endif
 
+  verbosePrint("Entering loop client.conected()");
   while (client.connected())
   {
+    verbosePrint("Entered loop client.conected()");
+
     // Has request timed out?
     unsigned long timeNow = millis();
     if (((timeNow - connectedSince) >= HTTP_REQUEST_TIMEOUT)) {
@@ -518,6 +556,7 @@ void processClient(WiFiClient client)
     }
 
     // Is data available?
+    verbosePrint("Calling client.available()");
     if (!client.available()) {
       continue;
     }
@@ -530,7 +569,7 @@ void processClient(WiFiClient client)
 
     // Is request complete?
     requestComplete = (currentLineIsEmpty && c == '\n');
-    
+
     if (c == '\n') {
       currentLineIsEmpty = true;
     } else if (c != '\r') {
@@ -546,6 +585,8 @@ void processClient(WiFiClient client)
 #endif
 
     // Extract and split HTTP request line
+    verbosePrint("Extract and split HTTP request line");
+
     char *requestLineEnd = strstr(request, "\r\n");
     char requestLine[requestLineEnd - request];
     memcpy(requestLine, request, sizeof(requestLine));
@@ -554,6 +595,8 @@ void processClient(WiFiClient client)
     char *requestUrl = strtok(NULL, " ");
 
     if ((requestType == NULL) || (requestUrl == NULL)) {
+      verbosePrint("Bad request");
+
       client.println("HTTP/1.1 400 Bad Request");
       client.println("Content-Type: application/json");
       client.println();
@@ -562,6 +605,8 @@ void processClient(WiFiClient client)
     }
 
     // Extract and check API Key header
+    verbosePrint("Extract and check API key header");
+
     char apiKeyHeader[] = "X-API-Key: ";
     char apiKeyReceived[sizeof(API_KEY) + 10];
     char *apiKeyReceivedPtr = strExtract(request, apiKeyHeader, "\r\n");
@@ -575,6 +620,8 @@ void processClient(WiFiClient client)
     }
 
     if (strcmp(API_KEY, apiKeyReceived) != 0) {
+      verbosePrint("Unauthorized");
+
       client.println("HTTP/1.1 401 Unauthorized");
       client.println("Content-Type: application/json");
       client.println();
@@ -583,6 +630,8 @@ void processClient(WiFiClient client)
     }
 
     // Handle request
+    verbosePrint("Handle request");
+
     if (strcmp(requestType, "GET") == 0) {
       if (strcasecmp(requestUrl, "/controller") == 0) {
         client.println("HTTP/1.1 200 OK");
@@ -657,6 +706,9 @@ void processClient(WiFiClient client)
       break;
     }
   }
+
+
+  verbosePrint("Calling client.stop()");
 
   delay(1);
   client.stop();
