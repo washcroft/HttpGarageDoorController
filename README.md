@@ -32,14 +32,15 @@ const int SENSOR_CLOSED_INPUT_PIN = 4;
 const long HTTP_SERVER_PORT = 80;
 const long HTTP_REQUEST_TIMEOUT = 4000;
 const long HTTP_REQUEST_BUFFER_SIZE = 256;
-const int WIFI_CONNECTION_TIMEOUT = 10000;
+const long WIFI_CONNECTION_TIMEOUT = 10000;
 const char MDNS_NAME[] = "garagedoorcontroller";
 
 // Garage Door Config
-const int DOOR_OUTPUT_PULSE_TIME = 400;
-const int DOOR_OUTPUT_PULSE_DELAY_TIME = 1250;
-const int DOOR_SENSOR_REACT_TIME = 3000;
-const int DOOR_MAX_OPEN_CLOSE_TIME = 25000;
+const long DOOR_OUTPUT_PULSE_TIME = 400;
+const long DOOR_OUTPUT_PULSE_DELAY_TIME = 1250;
+const long DOOR_SENSOR_REACT_TIME = 3000;
+const long DOOR_MAX_OPEN_CLOSE_TIME = 25000;
+const long DOOR_AUTO_CLOSE_TIME = 300000;
 ```
 
 Variables:
@@ -62,6 +63,7 @@ Variables:
 * DOOR_OUTPUT_PULSE_DELAY_TIME - The amount of time in milliseconds to wait before the garage door operator will respond to a second triggering of the GPIO output
 * DOOR_SENSOR_REACT_TIME - The amount of time in milliseconds the open/closed sensors take to react to the garage door opening/closing
 * DOOR_MAX_OPEN_CLOSE_TIME - The maximum amount of time in milliseconds the garage door should take to open or close (used to detect a fault status, add a few seconds of margin)
+* DOOR_AUTO_CLOSE_TIME - The maximum amount of time in milliseconds the garage door should be left open before automatically closing, or zero to disable automatic closing (default 300000 = 5 minutes)
 
 You will also need to add a **secret.h** file to your project containing your WiFi SSID, Password and HTTP API Key:
 

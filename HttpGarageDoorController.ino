@@ -36,6 +36,7 @@ bool lightInput;
 bool lightOutput;
 bool lightState;
 bool lightRequested;
+unsigned long doorTimeOpenSince = 0;
 unsigned long doorTimeLastOperated = 0;
 enum DoorState doorState = DOORSTATE_UNKNOWN;
 enum DoorState doorStateLastKnown = DOORSTATE_UNKNOWN;
@@ -242,9 +243,22 @@ void monitorInputs(int) {
     }
   }
 
+  if (doorState != DOORSTATE_OPEN) {
+    doorTimeOpenSince = 0;
+  }
+
   if ((doorState == DOORSTATE_OPEN) || (doorState == DOORSTATE_CLOSED)) {
     doorTimeLastOperated = 0;
     doorStateLastKnown = doorState;
+
+    if (doorState == DOORSTATE_OPEN) {
+      if (doorTimeOpenSince == 0) {
+        doorTimeOpenSince = timeNow;
+      } else if (DOOR_AUTO_CLOSE_TIME > 0 && (timeNow - doorTimeOpenSince) >= DOOR_AUTO_CLOSE_TIME) {
+        // Door was open, but should now be automatically closed
+        operateDoor(false);
+      }
+    }
 
   } else if ((doorState == DOORSTATE_OPENING) || (doorState == DOORSTATE_CLOSING)) {
     if ((timeNow - doorTimeLastOperated) >= DOOR_MAX_OPEN_CLOSE_TIME) {
