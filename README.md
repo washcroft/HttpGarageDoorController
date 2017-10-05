@@ -394,12 +394,11 @@ Controls the configured light GPIO output pin and latches.
 ### Libraries:
 - [ArduinoJson](https://github.com/bblanchon/ArduinoJson) (Copyright (c) 2014-2017 Benoit BLANCHON - MIT)
 - [Bounce2](https://github.com/thomasfredericks/Bounce2) (Copyright (c) 2013 thomasfredericks - MIT)
-- [Tasker](https://github.com/joysfera/arduino-tasker) (Copyleft (c) 2015-2017  Petr Stehlik - GNU LGPL v3.0)
 
 ### Bundled:
 - [Sha](https://github.com/Cathedrow/Cryptosuite) (Peter Knight - Public Domain)
 - [Base64](https://github.com/adamvr/arduino-base64) (Copyright (c) 2013 Adam Rudd - MIT)
-- [HashMap](https://github.com/Cathedrow/Cryptosuite) (Copyright (c) 2011 Alexander Brevig - GNU LGPL v3.0)
+- [HashMap](https://github.com/WiringProject/Wiring/tree/master/framework/libraries/HashMap) (Copyright (c) 2011 Alexander Brevig - GNU LGPL v3.0)
 - Clock (Copyright (c) 2017 Warren Ashcroft - MIT)
 - HttpWebServer (Copyright (c) 2017 Warren Ashcroft - MIT)
 - Utilities (Copyright (c) 2017 Warren Ashcroft - MIT)

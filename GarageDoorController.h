@@ -11,7 +11,6 @@
 // INCLUDES
 #include "compile.h"
 #include "config.h"
-#include "secret.h"
 
 #include "src/HashMap.h"
 #include "src/Utilities/Utilities.h"
