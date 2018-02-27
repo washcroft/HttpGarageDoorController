@@ -115,9 +115,10 @@ void HttpWebServer::enable_oauth_auth(UDP &udp, const char *oauth_consumer_key, 
 void HttpWebServer::poll(Client &client, uint16_t (*request_handler)(Client &, const char *, const char *, HashMap<char *, char *, 24> &))
 {
   LOGPRINTLN_TRACE("Entered HttpWebServer::poll()");
+#ifdef ENABLE_HTTP_SERVER_OAUTH_AUTH  
   LOGPRINTLN_TRACE("Calling HttpWebServer::clock.update()");
   this->clock->update();
-
+#endif
   if (!client) {
     return;
   }
