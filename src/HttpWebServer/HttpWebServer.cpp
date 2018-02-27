@@ -402,7 +402,7 @@ void HttpWebServer::poll(Client &client, uint16_t (*request_handler)(Client &, c
       // Save this nonce to the history
       if (authorised) {
         LOGPRINTLN_VERBOSE("OAuth authorisation - save nonce");
-        size_t oauth_nonce_length = min(strlen(q_oauth_nonce), this->_oauth_nonce_size);
+        size_t oauth_nonce_length = min((uint16_t)strlen(q_oauth_nonce), this->_oauth_nonce_size);
         memset(this->_oauth_nonces[this->_oauth_nonce_index], 0, this->_oauth_nonce_size + 1);
         memcpy(this->_oauth_nonces[this->_oauth_nonce_index], q_oauth_nonce, oauth_nonce_length);
         *(this->_oauth_nonces[this->_oauth_nonce_index] + oauth_nonce_length) = 0;
